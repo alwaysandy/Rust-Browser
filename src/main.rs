@@ -183,7 +183,7 @@ impl Browser {
             } else if c == '>' {
                 in_tag = false;
             } else if !in_tag {
-                text.push_str(&c.to_string());
+                text.push(c);
             }
         }
 
@@ -195,7 +195,7 @@ impl Browser {
         let vstep = 18;
         let mut cursor_x = 13;
         let mut cursor_y = 18;
-        for c in (&self.text).chars() {
+        for c in self.text.chars() {
             self.display_list.push((c, cursor_x, cursor_y));
             cursor_x += hstep;
             if cursor_x >= WIDTH - hstep {
