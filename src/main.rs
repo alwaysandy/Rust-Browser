@@ -72,6 +72,7 @@ impl URL {
         } else {
             Domain::IPV6
         };
+
         let mut socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
         socket.connect_timeout(&address.into(), Duration::from_secs(3))?;
         let mut request = format!("GET {} HTTP/1.0\r\n", self.path);
@@ -85,8 +86,8 @@ impl URL {
                 .with_no_client_auth();
 
             let rc_config = Arc::new(config);
-            let server_name =
-                rustls::pki_types::ServerName::DnsName(self.host.clone().try_into().unwrap());
+            let dns_name = self.host.clone().try_into().unwrap();
+            let server_name = rustls::pki_types::ServerName::DnsName(dns_name);
             let mut sess = rustls::ClientConnection::new(rc_config, server_name).unwrap();
             let mut tls = rustls::Stream::new(&mut sess, &mut socket);
             self.read_http_response(&mut tls, &request)?
