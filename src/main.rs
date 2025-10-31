@@ -155,7 +155,7 @@ impl URL {
 struct Browser {
     scroll: u32,
     text: String,
-    display_list: Vec<(char, u32, u32)>
+    display_list: Vec<(char, u32, u32)>,
 }
 
 impl Browser {
@@ -163,7 +163,7 @@ impl Browser {
         Self {
             scroll: 0,
             text: String::new(),
-            display_list: Vec::new()
+            display_list: Vec::new(),
         }
     }
 
@@ -217,9 +217,13 @@ impl Browser {
         let scale = PxScale::from(24.0);
         let scaled_font = font.as_scaled(scale);
         for (c, cursor_x, cursor_y) in &self.display_list {
-            let glyph = scaled_font
-                .glyph_id(*c)
-                .with_scale_and_position(scale, point(*cursor_x as f32, (*cursor_y as i32 - self.scroll as i32) as f32));
+            let glyph = scaled_font.glyph_id(*c).with_scale_and_position(
+                scale,
+                point(
+                    *cursor_x as f32,
+                    (*cursor_y as i32 - self.scroll as i32) as f32,
+                ),
+            );
             if let Some(outlined) = scaled_font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
                 outlined.draw(|gx, gy, coverage| {
@@ -306,8 +310,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             if input.key_pressed(KeyCode::ArrowUp) {
                 browser.scrollup();
             }
-
-
 
             // Resize the window
             // if let Some(size) = input.window_resized() {
