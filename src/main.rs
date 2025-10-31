@@ -1,5 +1,6 @@
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::ToSocketAddrs;
@@ -151,7 +152,13 @@ fn load(url: URL) -> Result<(), std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let url = URL::new("https://browser.engineering/examples/example1-simple.html");
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        println!("Usage: cargo run <URL>");
+        return Ok(());
+    }
+
+    let url = URL::new(&args[1]);
     load(url)?;
     Ok(())
 }
