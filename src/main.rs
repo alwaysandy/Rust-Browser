@@ -4,13 +4,14 @@ use std::error::Error;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug)]
 struct URL {
     scheme: String,
     host: String,
     path: String,
-    port: usize,
+    port: String,
 }
 
 impl URL {
@@ -26,18 +27,30 @@ impl URL {
             scheme == "http" || scheme == "https",
             "Invalid URL (must start with 'http://' or 'https://'"
         );
-        let port = if scheme == "http" { 80 } else { 443 };
+
+        let mut port = if scheme == "http" {
+            "80".to_owned()
+        } else {
+            "443".to_owned()
+        };
 
         if !url.contains("/") {
             url = format!("{}/", url);
         }
 
-        let Some((host, url)) = url
+        let Some((mut host, url)) = url
             .split_once("/")
             .map(|(host, url)| (host.to_owned(), url.to_owned()))
         else {
             unreachable!()
         };
+
+        if host.contains(":") {
+            (host, port) = host
+                .split_once(":")
+                .map(|(host, port)| (host.to_owned(), port.to_owned()))
+                .unwrap();
+        }
 
         let path = format!("/{}", url);
         Self {
@@ -49,12 +62,12 @@ impl URL {
     }
 
     fn request(self) -> Result<String, std::io::Error> {
-        let mut s = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+        let mut socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
         let address = format!("{}:{}", self.host, self.port)
             .to_socket_addrs()?
             .next()
             .unwrap();
-        s.connect(&address.into())?;
+        socket.connect_timeout(&address.into(), Duration::from_secs(3))?;
         let mut request = format!("GET {} HTTP/1.0\r\n", self.path);
         request.push_str(&format!("Host: {}\r\n", self.host));
         request.push_str("\r\n");
@@ -69,10 +82,10 @@ impl URL {
             let server_name =
                 rustls::pki_types::ServerName::DnsName(self.host.clone().try_into().unwrap());
             let mut sess = rustls::ClientConnection::new(rc_config, server_name).unwrap();
-            let mut tls = rustls::Stream::new(&mut sess, &mut s);
+            let mut tls = rustls::Stream::new(&mut sess, &mut socket);
             self.read_http_response(&mut tls, &request)?
         } else {
-            self.read_http_response(&mut s, &request)?
+            self.read_http_response(&mut socket, &request)?
         };
 
         Ok(response)
@@ -138,7 +151,7 @@ fn load(url: URL) -> Result<(), std::io::Error> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let url = URL::new("http://example.com");
+    let url = URL::new("https://browser.engineering/examples/example1-simple.html");
     load(url)?;
     Ok(())
 }
