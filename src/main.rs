@@ -153,21 +153,24 @@ impl URL {
 }
 
 struct Browser {
-    scroll: usize,
-    text: Option<String>,
+    scroll: u32,
+    text: String,
+    display_list: Vec<(char, u32, u32)>
 }
 
 impl Browser {
     fn new() -> Self {
         Self {
             scroll: 0,
-            text: None,
+            text: String::new(),
+            display_list: Vec::new()
         }
     }
 
     fn load(&mut self, url: URL) -> Result<(), std::io::Error> {
         let body = url.request()?;
-        self.text = Some(self.lex(body));
+        self.text = self.lex(body);
+        self.layout();
         Ok(())
     }
 
@@ -187,17 +190,32 @@ impl Browser {
         text.to_string()
     }
 
-    fn draw(&self, frame: &mut [u8], font: &FontRef) {
+    fn layout(&mut self) {
         let hstep = 13;
         let vstep = 18;
         let mut cursor_x = 13;
         let mut cursor_y = 18;
+        for c in (&self.text).chars() {
+            self.display_list.push((c, cursor_x, cursor_y));
+            cursor_x += hstep;
+            if cursor_x >= WIDTH - hstep {
+                cursor_x = hstep;
+                cursor_y += vstep;
+            }
+        }
+    }
+
+    fn scrolldown(&mut self) {
+        self.scroll += 20;
+    }
+
+    fn draw(&self, frame: &mut [u8], font: &FontRef) {
         let scale = PxScale::from(24.0);
         let scaled_font = font.as_scaled(scale);
-        for c in self.text.as_ref().unwrap().chars() {
+        for (c, cursor_x, cursor_y) in &self.display_list {
             let glyph = scaled_font
-                .glyph_id(c)
-                .with_scale_and_position(scale, point(cursor_x as f32, cursor_y as f32));
+                .glyph_id(*c)
+                .with_scale_and_position(scale, point(*cursor_x as f32, (*cursor_y as i32 - self.scroll as i32) as f32));
             if let Some(outlined) = scaled_font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
                 outlined.draw(|gx, gy, coverage| {
@@ -217,11 +235,6 @@ impl Browser {
                     }
                     frame[idx + 3] = 255;
                 });
-            }
-            cursor_x += hstep;
-            if cursor_x >= WIDTH - hstep {
-                cursor_x = hstep;
-                cursor_y += vstep;
             }
         }
     }
@@ -280,6 +293,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             if input.key_pressed(KeyCode::Escape) || input.close_requested() {
                 elwt.exit();
                 return;
+            }
+
+            if input.key_pressed(KeyCode::ArrowDown) {
+                browser.scrolldown();
             }
 
             // Resize the window
