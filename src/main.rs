@@ -1,4 +1,4 @@
-use socket2::{Domain, Protocol, Socket, Type};
+use std::arch::aarch64::vsetq_lane_s8;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
@@ -6,6 +6,21 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
+
+use socket2::{Domain, Protocol, Socket, Type};
+
+use pixels::{Pixels, SurfaceTexture};
+use winit::dpi::LogicalSize;
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::EventLoop;
+use winit::keyboard::KeyCode;
+use winit::window::WindowBuilder;
+use winit_input_helper::WinitInputHelper;
+
+use ab_glyph::{Font, FontArc, FontRef, Glyph, PxScale, ScaleFont, point};
+
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 600;
 
 #[derive(Debug)]
 struct URL {
@@ -138,23 +153,79 @@ impl URL {
     }
 }
 
-fn show(body: String) {
-    let mut in_tag = false;
-    for c in body.chars() {
-        if c == '<' {
-            in_tag = true;
-        } else if c == '>' {
-            in_tag = false;
-        } else if !in_tag {
-            print!("{}", c);
-        }
-    }
+struct Browser {
+    scroll: usize,
+    text: Option<String>,
 }
 
-fn load(url: URL) -> Result<(), std::io::Error> {
-    let body = url.request()?;
-    show(body);
-    Ok(())
+impl Browser {
+    fn new() -> Self {
+        Self {
+            scroll: 0,
+            text: None,
+        }
+    }
+
+    fn load(&mut self, url: URL) -> Result<(), std::io::Error> {
+        let body = url.request()?;
+        self.text = Some(self.lex(body));
+        Ok(())
+    }
+
+    fn lex(&self, body: String) -> String {
+        let mut text = "".to_string();
+        let mut in_tag = false;
+        for c in body.chars() {
+            if c == '<' {
+                in_tag = true;
+            } else if c == '>' {
+                in_tag = false;
+            } else if !in_tag {
+                text.push_str(&c.to_string());
+            }
+        }
+
+        text.to_string()
+    }
+
+    fn draw(&self, frame: &mut [u8], font: &FontRef) {
+        let hstep = 13;
+        let vstep = 18;
+        let mut cursor_x = 13;
+        let mut cursor_y = 18;
+        let scale = PxScale::from(24.0);
+        let scaled_font = font.as_scaled(scale);
+        for c in self.text.as_ref().unwrap().chars() {
+            let glyph = scaled_font
+                .glyph_id(c)
+                .with_scale_and_position(scale, point(cursor_x as f32, cursor_y as f32));
+            if let Some(outlined) = scaled_font.outline_glyph(glyph) {
+                let bounds = outlined.px_bounds();
+                outlined.draw(|gx, gy, coverage| {
+                    let gx = gx as i32 + bounds.min.x as i32;
+                    let gy = gy as i32 + bounds.min.y as i32;
+                    if gx < 0 || gx >= WIDTH as i32 || gy < 0 || gy >= HEIGHT as i32 {
+                        return;
+                    }
+
+                    let idx = ((gy as u32 * WIDTH + gx as u32) * 4) as usize;
+                    let inv_alpha = 1.0 - coverage;
+                    let text_color = [255u8, 0u8, 0u8];
+                    for d in 0..3 {
+                        let bg = frame[idx + d] as f32;
+                        let fg = text_color[d] as f32;
+                        frame[idx + d] = (bg * inv_alpha + fg * coverage) as u8;
+                    }
+                    frame[idx + 3] = 255;
+                });
+            }
+            cursor_x += hstep;
+            if cursor_x >= WIDTH - hstep {
+                cursor_x = hstep;
+                cursor_y += vstep;
+            }
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -164,7 +235,65 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    let event_loop = EventLoop::new().unwrap();
+    let mut input = WinitInputHelper::new();
+
+    let window = {
+        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+        WindowBuilder::new()
+            .with_title("Andy Browser")
+            .with_inner_size(size)
+            .with_min_inner_size(size)
+            .build(&event_loop)
+            .unwrap()
+    };
+
+    let mut pixels = {
+        let window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        Pixels::new(WIDTH, HEIGHT, surface_texture)?
+    };
+
     let url = URL::new(&args[1]);
-    load(url)?;
+    let mut browser = Browser::new();
+    browser.load(url)?;
+    let font = FontRef::try_from_slice(include_bytes!("arial.ttf"))?;
+    event_loop.run(|event, elwt| {
+        if let Event::WindowEvent {
+            event: WindowEvent::RedrawRequested,
+            ..
+        } = event
+        {
+            let frame = pixels.frame_mut();
+            for pixel in frame.chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[255, 255, 255, 255]);
+            }
+
+            browser.draw(frame, &font);
+            if let Err(err) = pixels.render() {
+                elwt.exit();
+                return;
+            }
+        }
+        // Handle input events
+        if input.update(&event) {
+            // Close events
+            if input.key_pressed(KeyCode::Escape) || input.close_requested() {
+                elwt.exit();
+                return;
+            }
+
+            // Resize the window
+            // if let Some(size) = input.window_resized() {
+            //     if let Err(err) = pixels.resize_surface(size.width, size.height) {
+            //         elwt.exit();
+            //         return;
+            //     }
+            // }
+
+            window.request_redraw();
+        }
+    })?;
+
     Ok(())
 }

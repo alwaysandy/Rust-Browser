@@ -7,3 +7,8 @@ edition = "2024"
 socket2 = "0.6"
 rustls = "0.23"
 webpki-roots = "1.0.3"
+
+pixels = "0.15"
+winit = "0.29"
+winit_input_helper = "0.16"
+ab_glyph = "0.2"
