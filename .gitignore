@@ -1,1 +1,5 @@
+.DS_Store
 /target
+/src/target
+/src/*.ttf
+/src/.DS_Store
