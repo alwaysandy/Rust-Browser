@@ -63,11 +63,16 @@ impl URL {
     }
 
     fn request(self) -> Result<String, std::io::Error> {
-        let mut socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
         let address = format!("{}:{}", self.host, self.port)
             .to_socket_addrs()?
             .next()
             .unwrap();
+        let domain = if address.is_ipv4() {
+            Domain::IPV4
+        } else {
+            Domain::IPV6
+        };
+        let mut socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
         socket.connect_timeout(&address.into(), Duration::from_secs(3))?;
         let mut request = format!("GET {} HTTP/1.0\r\n", self.path);
         request.push_str(&format!("Host: {}\r\n", self.host));
