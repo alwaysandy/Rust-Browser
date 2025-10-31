@@ -209,6 +209,10 @@ impl Browser {
         self.scroll += 20;
     }
 
+    fn scrollup(&mut self) {
+        self.scroll = std::cmp::max(0, self.scroll as i32 - 20) as u32;
+    }
+
     fn draw(&self, frame: &mut [u8], font: &FontRef) {
         let scale = PxScale::from(24.0);
         let scaled_font = font.as_scaled(scale);
@@ -298,6 +302,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             if input.key_pressed(KeyCode::ArrowDown) {
                 browser.scrolldown();
             }
+
+            if input.key_pressed(KeyCode::ArrowUp) {
+                browser.scrollup();
+            }
+
+
 
             // Resize the window
             // if let Some(size) = input.window_resized() {
