@@ -65,7 +65,7 @@ impl URL {
             }
             let mut temp_line = line.clone();
             let (header, value) = temp_line.split_once(" ").unwrap();
-            response_headers.insert(header.to_owned(), value.trim().to_owned());
+            response_headers.insert(header.to_lowercase().to_owned(), value.trim().to_owned());
             line.clear();
         }
         assert!(!response_headers.contains_key("transfer-encoding"));
