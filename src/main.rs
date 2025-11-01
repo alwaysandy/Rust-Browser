@@ -216,7 +216,12 @@ impl Browser {
     fn draw(&self, frame: &mut [u8], font: &FontRef) {
         let scale = PxScale::from(16.0);
         let scaled_font = font.as_scaled(scale);
+
         for (c, cursor_x, cursor_y) in &self.display_list {
+            if *cursor_y > self.scroll + HEIGHT || *cursor_y + 12 < self.scroll {
+                continue;
+            }
+
             let glyph = scaled_font.glyph_id(*c).with_scale_and_position(
                 scale,
                 point(
