@@ -240,7 +240,7 @@ impl Browser {
 
                     let idx = ((gy as u32 * WIDTH + gx as u32) * 4) as usize;
                     let inv_alpha = 1.0 - coverage;
-                    let text_color = [255u8, 0u8, 0u8];
+                    let text_color = [0u8, 0u8, 0u8];
                     for d in 0..3 {
                         let bg = frame[idx + d] as f32;
                         let fg = text_color[d] as f32;
