@@ -16,7 +16,7 @@ use winit::keyboard::KeyCode;
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-use ab_glyph::{Font, FontArc, FontRef, Glyph, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
@@ -216,8 +216,11 @@ impl Browser {
     fn draw(&self, frame: &mut [u8], font: &FontRef) {
         let scale = PxScale::from(16.0);
         let scaled_font = font.as_scaled(scale);
-
         for (c, cursor_x, cursor_y) in &self.display_list {
+            if *c == '\n' || *c == '\r' {
+                continue;
+            }
+
             if *cursor_y > self.scroll + HEIGHT || *cursor_y + 12 < self.scroll {
                 continue;
             }
@@ -229,6 +232,8 @@ impl Browser {
                     (*cursor_y as i32 - self.scroll as i32) as f32,
                 ),
             );
+
+
             if let Some(outlined) = scaled_font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
                 outlined.draw(|gx, gy, coverage| {
@@ -282,7 +287,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let url = URL::new(&args[1]);
     let mut browser = Browser::new();
     browser.load(url)?;
-    let font = FontRef::try_from_slice(include_bytes!("arial.ttf"))?;
+    let font = FontRef::try_from_slice(include_bytes!("Arial-Unicode-MS.ttf"))?;
     event_loop.run(|event, elwt| {
         if let Event::WindowEvent {
             event: WindowEvent::RedrawRequested,
