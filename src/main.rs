@@ -308,11 +308,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 return;
             }
 
-            if input.key_pressed(KeyCode::ArrowDown) {
+            if input.key_held(KeyCode::ArrowDown) {
                 browser.scrolldown();
             }
 
-            if input.key_pressed(KeyCode::ArrowUp) {
+            if input.key_held(KeyCode::ArrowUp) {
                 browser.scrollup();
             }
 
