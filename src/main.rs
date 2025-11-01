@@ -210,7 +210,10 @@ impl Browser {
             return;
         }
 
-        self.scroll = std::cmp::min(self.scroll + 20, self.display_list[self.display_list.len() - 1].2 - HEIGHT + VSTEP)
+        self.scroll = std::cmp::min(
+            self.scroll + 20,
+            self.display_list[self.display_list.len() - 1].2 - HEIGHT + VSTEP,
+        )
     }
 
     fn scrollup(&mut self) {
