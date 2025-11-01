@@ -290,10 +290,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } = event
         {
             let frame = pixels.frame_mut();
-            for pixel in frame.chunks_exact_mut(4) {
-                pixel.copy_from_slice(&[255, 255, 255, 255]);
-            }
-
+            frame.fill(255);
             browser.draw(frame, &font);
             if let Err(err) = pixels.render() {
                 elwt.exit();
