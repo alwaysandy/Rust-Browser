@@ -20,6 +20,8 @@ use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
+const VSTEP: u32 = 18;
+const HSTEP: u32 = 12;
 
 #[derive(Debug)]
 struct URL {
@@ -191,22 +193,24 @@ impl Browser {
     }
 
     fn layout(&mut self) {
-        let hstep = 13;
-        let vstep = 18;
         let mut cursor_x = 13;
         let mut cursor_y = 18;
         for c in self.text.chars() {
             self.display_list.push((c, cursor_x, cursor_y));
-            cursor_x += hstep;
-            if cursor_x >= WIDTH - hstep {
-                cursor_x = hstep;
-                cursor_y += vstep;
+            cursor_x += HSTEP;
+            if cursor_x >= WIDTH - HSTEP {
+                cursor_x = HSTEP;
+                cursor_y += VSTEP;
             }
         }
     }
 
     fn scrolldown(&mut self) {
-        self.scroll += 20;
+        if self.display_list.len() == 0 {
+            return;
+        }
+
+        self.scroll = std::cmp::min(self.scroll + 20, self.display_list[self.display_list.len() - 1].2 - HEIGHT + VSTEP)
     }
 
     fn scrollup(&mut self) {
@@ -232,7 +236,6 @@ impl Browser {
                     (*cursor_y as i32 - self.scroll as i32) as f32,
                 ),
             );
-
 
             if let Some(outlined) = scaled_font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
