@@ -17,11 +17,13 @@ use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
+use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 const VSTEP: u32 = 18;
-const HSTEP: u32 = 12;
+const HSTEP: u32 = 50;
+const FONT_SIZE: f32 = 24.0;
 
 #[derive(Debug)]
 struct URL {
@@ -157,7 +159,7 @@ impl URL {
 struct Browser {
     scroll: u32,
     text: String,
-    display_list: Vec<(char, u32, u32)>,
+    display_list: Vec<(GlyphBuffer, u32, u32)>,
 }
 
 impl Browser {
@@ -172,7 +174,6 @@ impl Browser {
     fn load(&mut self, url: URL) -> Result<(), std::io::Error> {
         let body = url.request()?;
         self.text = self.lex(body);
-        self.layout();
         Ok(())
     }
 
@@ -192,15 +193,25 @@ impl Browser {
         text.to_string()
     }
 
-    fn layout(&mut self) {
-        let mut cursor_x = 13;
-        let mut cursor_y = 18;
-        for c in self.text.chars() {
-            self.display_list.push((c, cursor_x, cursor_y));
-            cursor_x += HSTEP;
-            if cursor_x >= WIDTH - HSTEP {
+    fn layout(&mut self, font: &FontRef, face: &Face) {
+        let mut cursor_x = HSTEP;
+        let mut cursor_y = VSTEP;
+        let unscaled_height = font.height_unscaled();
+        let scale_factor = FONT_SIZE / unscaled_height;
+        let scaled_font = font.as_scaled(FONT_SIZE);
+        let space_advance = scaled_font.h_advance(font.glyph_id(' '));
+        let font_height = scaled_font.height();
+        for word in self.text.split_whitespace() {
+            let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
+            buffer.push_str(word);
+            let glyph_buffer = shape(&face, &[], buffer);
+            let measure: u32 = (glyph_buffer.glyph_positions().iter().map(|p| p.x_advance).sum::<i32>() as f32 * scale_factor) as u32;
+
+            self.display_list.push((glyph_buffer, cursor_x, cursor_y));
+            cursor_x += measure + space_advance as u32;
+            if cursor_x + measure >= WIDTH - HSTEP {
                 cursor_x = HSTEP;
-                cursor_y += VSTEP;
+                cursor_y += (font_height * 1.25) as u32;
             }
         }
     }
@@ -221,44 +232,47 @@ impl Browser {
     }
 
     fn draw(&self, frame: &mut [u8], font: &FontRef) {
-        let scale = PxScale::from(16.0);
+        let scale = PxScale::from(FONT_SIZE);
         let scaled_font = font.as_scaled(scale);
-        for (c, cursor_x, cursor_y) in &self.display_list {
-            if *c == '\n' || *c == '\r' {
-                continue;
-            }
+        for (glyph_buffer, start_x, cursor_y) in &self.display_list {
+            let infos = glyph_buffer.glyph_infos();
+            let positions = glyph_buffer.glyph_positions();
+            let mut cursor_x = *start_x as f32;
+            for (info, pos) in infos.iter().zip(positions.iter()) {
+                if *cursor_y > self.scroll + HEIGHT || *cursor_y + 12 < self.scroll {
+                    continue;
+                }
 
-            if *cursor_y > self.scroll + HEIGHT || *cursor_y + 12 < self.scroll {
-                continue;
-            }
+                let scale_factor = FONT_SIZE / font.height_unscaled();
 
-            let glyph = scaled_font.glyph_id(*c).with_scale_and_position(
-                scale,
-                point(
-                    *cursor_x as f32,
-                    (*cursor_y as i32 - self.scroll as i32) as f32,
-                ),
-            );
+                let gid = ab_glyph::GlyphId(info.glyph_id as u16);
+                let x = cursor_x + (pos.x_offset as f32 * scale_factor);
+                let y =
+                    (*cursor_y as i32 - self.scroll as i32) as f32 - (pos.y_offset as f32 / 64.0);
+                let glyph = gid.with_scale_and_position(scale, point(x, y));
 
-            if let Some(outlined) = scaled_font.outline_glyph(glyph) {
-                let bounds = outlined.px_bounds();
-                outlined.draw(|gx, gy, coverage| {
-                    let gx = gx as i32 + bounds.min.x as i32;
-                    let gy = gy as i32 + bounds.min.y as i32;
-                    if gx < 0 || gx >= WIDTH as i32 || gy < 0 || gy >= HEIGHT as i32 {
-                        return;
-                    }
+                if let Some(outlined) = scaled_font.outline_glyph(glyph) {
+                    let bounds = outlined.px_bounds();
+                    outlined.draw(|gx, gy, coverage| {
+                        let gx = gx as i32 + bounds.min.x as i32;
+                        let gy = gy as i32 + bounds.min.y as i32;
+                        if gx < 0 || gx >= WIDTH as i32 || gy < 0 || gy >= HEIGHT as i32 {
+                            return;
+                        }
 
-                    let idx = ((gy as u32 * WIDTH + gx as u32) * 4) as usize;
-                    let inv_alpha = 1.0 - coverage;
-                    let text_color = [0u8, 0u8, 0u8];
-                    for d in 0..3 {
-                        let bg = frame[idx + d] as f32;
-                        let fg = text_color[d] as f32;
-                        frame[idx + d] = (bg * inv_alpha + fg * coverage) as u8;
-                    }
-                    frame[idx + 3] = 255;
-                });
+                        let idx = ((gy as u32 * WIDTH + gx as u32) * 4) as usize;
+                        let inv_alpha = 1.0 - coverage;
+                        let text_color = [0u8, 0u8, 0u8];
+                        for d in 0..3 {
+                            let bg = frame[idx + d] as f32;
+                            let fg = text_color[d] as f32;
+                            frame[idx + d] = (bg * inv_alpha + fg * coverage) as u8;
+                        }
+                        frame[idx + 3] = 255;
+                    });
+                }
+
+                cursor_x += pos.x_advance as f32 * scale_factor;
             }
         }
     }
@@ -270,6 +284,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Usage: cargo run <URL>");
         return Ok(());
     }
+
+    let font_data = include_bytes!("Arial-Unicode-MS.ttf");
+    let font = FontRef::try_from_slice(font_data)?;
+    let face = Face::from_slice(font_data, 0).unwrap();
+
+    let url = URL::new(&args[1]);
+    let mut browser = Browser::new();
+    browser.load(url)?;
+    browser.layout(&font, &face);
 
     let event_loop = EventLoop::new().unwrap();
     let mut input = WinitInputHelper::new();
@@ -290,10 +313,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let url = URL::new(&args[1]);
-    let mut browser = Browser::new();
-    browser.load(url)?;
-    let font = FontRef::try_from_slice(include_bytes!("Arial-Unicode-MS.ttf"))?;
     event_loop.run(|event, elwt| {
         if let Event::WindowEvent {
             event: WindowEvent::RedrawRequested,
