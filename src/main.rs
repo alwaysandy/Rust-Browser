@@ -19,9 +19,9 @@ use winit_input_helper::WinitInputHelper;
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
-const VSTEP: u32 = 18;
-const HSTEP: u32 = 50;
-const FONT_SIZE: f32 = 24.0;
+const VSTEP: u32 = (FONT_SIZE * 1.25) as u32;
+const HSTEP: u32 = (FONT_SIZE * 1.25) as u32;
+const FONT_SIZE: f32 = 40.0;
 
 #[derive(Debug)]
 struct URL {
@@ -159,7 +159,7 @@ struct Browser {
     text: String,
     display_list: Vec<(GlyphBuffer, u32, u32)>,
     width: u32,
-    height: u32
+    height: u32,
 }
 
 impl Browser {
@@ -208,15 +208,29 @@ impl Browser {
             let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
             buffer.push_str(word);
             let glyph_buffer = shape(&face, &[], buffer);
-            let measure: u32 = (glyph_buffer.glyph_positions().iter().map(|p| p.x_advance).sum::<i32>() as f32 * scale_factor) as u32;
+            let measure: u32 = (glyph_buffer
+                .glyph_positions()
+                .iter()
+                .map(|p| p.x_advance)
+                .sum::<i32>() as f32
+                * scale_factor) as u32;
 
-            self.display_list.push((glyph_buffer, cursor_x, cursor_y));
-            cursor_x += measure + space_advance as u32;
             if cursor_x + measure >= self.width - HSTEP {
                 cursor_x = HSTEP;
                 cursor_y += (font_height * 1.25) as u32;
             }
+            self.display_list.push((glyph_buffer, cursor_x, cursor_y));
+            cursor_x += measure + space_advance as u32;
         }
+    }
+
+    fn reset_scroll(&mut self) {
+        self.scroll = std::cmp::min(
+            self.scroll,
+            self.display_list[self.display_list.len() - 1].2 - self.height + VSTEP,
+        );
+
+        self.scroll = std::cmp::max(0, self.scroll);
     }
 
     fn scrolldown(&mut self) {
@@ -250,8 +264,8 @@ impl Browser {
 
                 let gid = ab_glyph::GlyphId(info.glyph_id as u16);
                 let x = cursor_x + (pos.x_offset as f32 * scale_factor);
-                let y =
-                    (*cursor_y as i32 - self.scroll as i32) as f32 - (pos.y_offset as f32 * scale_factor);
+                let y = (*cursor_y as i32 - self.scroll as i32) as f32
+                    - (pos.y_offset as f32 * scale_factor);
                 let glyph = gid.with_scale_and_position(scale, point(x, y));
 
                 if let Some(outlined) = scaled_font.outline_glyph(glyph) {
@@ -284,6 +298,7 @@ impl Browser {
         self.width = width;
         self.height = height;
         self.layout(font, face);
+        self.reset_scroll();
     }
 }
 
