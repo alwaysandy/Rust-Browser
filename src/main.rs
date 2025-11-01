@@ -19,8 +19,6 @@ use winit_input_helper::WinitInputHelper;
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 600;
 const VSTEP: u32 = 18;
 const HSTEP: u32 = 50;
 const FONT_SIZE: f32 = 24.0;
@@ -160,6 +158,8 @@ struct Browser {
     scroll: u32,
     text: String,
     display_list: Vec<(GlyphBuffer, u32, u32)>,
+    width: u32,
+    height: u32
 }
 
 impl Browser {
@@ -168,6 +168,8 @@ impl Browser {
             scroll: 0,
             text: String::new(),
             display_list: Vec::new(),
+            width: 800,
+            height: 600,
         }
     }
 
@@ -194,6 +196,7 @@ impl Browser {
     }
 
     fn layout(&mut self, font: &FontRef, face: &Face) {
+        self.display_list.clear();
         let mut cursor_x = HSTEP;
         let mut cursor_y = VSTEP;
         let unscaled_height = font.height_unscaled();
@@ -209,7 +212,7 @@ impl Browser {
 
             self.display_list.push((glyph_buffer, cursor_x, cursor_y));
             cursor_x += measure + space_advance as u32;
-            if cursor_x + measure >= WIDTH - HSTEP {
+            if cursor_x + measure >= self.width - HSTEP {
                 cursor_x = HSTEP;
                 cursor_y += (font_height * 1.25) as u32;
             }
@@ -223,7 +226,7 @@ impl Browser {
 
         self.scroll = std::cmp::min(
             self.scroll + 20,
-            self.display_list[self.display_list.len() - 1].2 - HEIGHT + VSTEP,
+            self.display_list[self.display_list.len() - 1].2 - self.height + VSTEP,
         )
     }
 
@@ -239,7 +242,7 @@ impl Browser {
             let positions = glyph_buffer.glyph_positions();
             let mut cursor_x = *start_x as f32;
             for (info, pos) in infos.iter().zip(positions.iter()) {
-                if *cursor_y > self.scroll + HEIGHT || *cursor_y + 12 < self.scroll {
+                if *cursor_y > self.scroll + self.height || *cursor_y + 12 < self.scroll {
                     continue;
                 }
 
@@ -248,7 +251,7 @@ impl Browser {
                 let gid = ab_glyph::GlyphId(info.glyph_id as u16);
                 let x = cursor_x + (pos.x_offset as f32 * scale_factor);
                 let y =
-                    (*cursor_y as i32 - self.scroll as i32) as f32 - (pos.y_offset as f32 / 64.0);
+                    (*cursor_y as i32 - self.scroll as i32) as f32 - (pos.y_offset as f32 * scale_factor);
                 let glyph = gid.with_scale_and_position(scale, point(x, y));
 
                 if let Some(outlined) = scaled_font.outline_glyph(glyph) {
@@ -256,11 +259,11 @@ impl Browser {
                     outlined.draw(|gx, gy, coverage| {
                         let gx = gx as i32 + bounds.min.x as i32;
                         let gy = gy as i32 + bounds.min.y as i32;
-                        if gx < 0 || gx >= WIDTH as i32 || gy < 0 || gy >= HEIGHT as i32 {
+                        if gx < 0 || gx >= self.width as i32 || gy < 0 || gy >= self.height as i32 {
                             return;
                         }
 
-                        let idx = ((gy as u32 * WIDTH + gx as u32) * 4) as usize;
+                        let idx = ((gy as u32 * self.width + gx as u32) * 4) as usize;
                         let inv_alpha = 1.0 - coverage;
                         let text_color = [0u8, 0u8, 0u8];
                         for d in 0..3 {
@@ -276,6 +279,12 @@ impl Browser {
             }
         }
     }
+
+    fn resize(&mut self, width: u32, height: u32, font: &FontRef, face: &Face) {
+        self.width = width;
+        self.height = height;
+        self.layout(font, face);
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -284,6 +293,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Usage: cargo run <URL>");
         return Ok(());
     }
+
+    let width = 800;
+    let height = 600;
 
     let font_data = include_bytes!("Arial-Unicode-MS.ttf");
     let font = FontRef::try_from_slice(font_data)?;
@@ -298,7 +310,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input = WinitInputHelper::new();
 
     let window = {
-        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+        let size = LogicalSize::new(width as f64, height as f64);
         WindowBuilder::new()
             .with_title("Andy Browser")
             .with_inner_size(size)
@@ -310,7 +322,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(WIDTH, HEIGHT, surface_texture)?
+        Pixels::new(width, height, surface_texture)?
     };
 
     event_loop.run(|event, elwt| {
@@ -343,13 +355,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                 browser.scrollup();
             }
 
-            // Resize the window
-            // if let Some(size) = input.window_resized() {
-            //     if let Err(err) = pixels.resize_surface(size.width, size.height) {
-            //         elwt.exit();
-            //         return;
-            //     }
-            // }
+            if let Some(size) = input.window_resized() {
+                if let Err(err) = pixels.resize_surface(size.width, size.height) {
+                    elwt.exit();
+                    return;
+                }
+
+                if let Err(err) = pixels.resize_buffer(size.width, size.height) {
+                    elwt.exit();
+                    return;
+                }
+
+                browser.resize(size.width, size.height, &font, &face);
+            }
 
             window.request_redraw();
         }
