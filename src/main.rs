@@ -127,9 +127,9 @@ impl URL {
 
         reader.read_line(&mut line)?;
         let mut statusline = line.splitn(3, " ");
-        let version = statusline.next().unwrap();
-        let status = statusline.next().unwrap();
-        let explanation = statusline.next().unwrap();
+        let _version = statusline.next().unwrap();
+        let _status = statusline.next().unwrap();
+        let _explanation = statusline.next().unwrap();
         line.clear();
 
         let mut response_headers: HashMap<String, String> = HashMap::new();
@@ -199,10 +199,15 @@ impl Browser {
         self.display_list.clear();
         let mut word_start_x = HSTEP;
         let mut word_start_y = VSTEP;
-        let unscaled_height = font.height_unscaled();
+
+        // Font size should be set in pt, not px
         let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
-        let scale_factor = scale.x / unscaled_height;
         let scaled_font = font.as_scaled(scale);
+
+        // RustyBuzz offsets / advances need to be manually scaled to px values
+        let unscaled_height = font.height_unscaled();
+        let scale_factor = scale.x / unscaled_height;
+
         let space_width_in_px = scaled_font.h_advance(font.glyph_id(' '));
         let font_height = scaled_font.height();
         for word in self.text.split_whitespace() {
@@ -221,7 +226,8 @@ impl Browser {
                 word_start_x = HSTEP;
                 word_start_y += (font_height * 1.2) as u32;
             }
-            self.display_list.push((glyph_buffer, word_start_x, word_start_y));
+            self.display_list
+                .push((glyph_buffer, word_start_x, word_start_y));
             word_start_x += word_width_in_px + space_width_in_px as u32;
         }
     }
@@ -251,6 +257,7 @@ impl Browser {
     }
 
     fn draw(&self, frame: &mut [u8], font: &FontRef) {
+        // Font size should be set in pt, not px
         let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
         let scaled_font = font.as_scaled(scale);
         for (glyph_buffer, start_x, cursor_y) in &self.display_list {
@@ -262,6 +269,7 @@ impl Browser {
                     continue;
                 }
 
+                // RustyBuzz offsets / advances need to be manually scaled to px values
                 let scale_factor = scale.x / font.height_unscaled();
 
                 let gid = ab_glyph::GlyphId(info.glyph_id as u16);
@@ -291,6 +299,8 @@ impl Browser {
                     });
                 }
 
+                // Since we're dealing with words, not characters, we need to
+                // move the starting x of the next character by the x_advance
                 cursor_x += pos.x_advance as f32 * scale_factor;
             }
         }
