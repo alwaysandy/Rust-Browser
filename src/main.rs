@@ -242,7 +242,7 @@ impl Browser {
     }
 
     fn scrolldown(&mut self) {
-        if self.display_list.len() == 0 {
+        if self.display_list.is_empty() {
             return;
         }
 
@@ -306,7 +306,7 @@ impl Browser {
         }
     }
 
-    fn resize(&mut self, width: u32, height: u32, font: &FontRef, face: &Face) {
+    fn resize_browser(&mut self, width: u32, height: u32, font: &FontRef, face: &Face) {
         self.width = width;
         self.height = height;
         self.layout(font, face);
@@ -393,7 +393,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     return;
                 }
 
-                browser.resize(size.width, size.height, &font, &face);
+                browser.resize_browser(size.width, size.height, &font, &face);
             }
 
             window.request_redraw();
