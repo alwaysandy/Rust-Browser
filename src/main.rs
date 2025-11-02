@@ -16,12 +16,12 @@ use winit::keyboard::KeyCode;
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontRef, ScaleFont, point};
 use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
-const VSTEP: u32 = (FONT_SIZE * 1.25) as u32;
-const HSTEP: u32 = (FONT_SIZE * 1.25) as u32;
-const FONT_SIZE: f32 = 40.0;
+const VSTEP: u32 = (FONT_SIZE * 1.7) as u32;
+const HSTEP: u32 = (FONT_SIZE * 1.7) as u32;
+const FONT_SIZE: f32 = 16.0;
 
 #[derive(Debug)]
 struct URL {
@@ -197,30 +197,32 @@ impl Browser {
 
     fn layout(&mut self, font: &FontRef, face: &Face) {
         self.display_list.clear();
-        let mut cursor_x = HSTEP;
-        let mut cursor_y = VSTEP;
+        let mut word_start_x = HSTEP;
+        let mut word_start_y = VSTEP;
         let unscaled_height = font.height_unscaled();
-        let scale_factor = FONT_SIZE / unscaled_height;
-        let scaled_font = font.as_scaled(FONT_SIZE);
-        let space_advance = scaled_font.h_advance(font.glyph_id(' '));
+        let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
+        let scale_factor = scale.x / unscaled_height;
+        let scaled_font = font.as_scaled(scale);
+        let space_width_in_px = scaled_font.h_advance(font.glyph_id(' '));
         let font_height = scaled_font.height();
         for word in self.text.split_whitespace() {
             let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
             buffer.push_str(word);
             let glyph_buffer = shape(&face, &[], buffer);
-            let measure: u32 = (glyph_buffer
+
+            let word_width_in_px: u32 = (glyph_buffer
                 .glyph_positions()
                 .iter()
                 .map(|p| p.x_advance)
                 .sum::<i32>() as f32
                 * scale_factor) as u32;
 
-            if cursor_x + measure >= self.width - HSTEP {
-                cursor_x = HSTEP;
-                cursor_y += (font_height * 1.25) as u32;
+            if word_start_x + word_width_in_px >= self.width - HSTEP {
+                word_start_x = HSTEP;
+                word_start_y += (font_height * 1.2) as u32;
             }
-            self.display_list.push((glyph_buffer, cursor_x, cursor_y));
-            cursor_x += measure + space_advance as u32;
+            self.display_list.push((glyph_buffer, word_start_x, word_start_y));
+            word_start_x += word_width_in_px + space_width_in_px as u32;
         }
     }
 
@@ -249,7 +251,7 @@ impl Browser {
     }
 
     fn draw(&self, frame: &mut [u8], font: &FontRef) {
-        let scale = PxScale::from(FONT_SIZE);
+        let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
         let scaled_font = font.as_scaled(scale);
         for (glyph_buffer, start_x, cursor_y) in &self.display_list {
             let infos = glyph_buffer.glyph_infos();
@@ -260,7 +262,7 @@ impl Browser {
                     continue;
                 }
 
-                let scale_factor = FONT_SIZE / font.height_unscaled();
+                let scale_factor = scale.x / font.height_unscaled();
 
                 let gid = ab_glyph::GlyphId(info.glyph_id as u16);
                 let x = cursor_x + (pos.x_offset as f32 * scale_factor);
