@@ -192,7 +192,7 @@ impl Browser {
             }
         }
 
-        text.to_string()
+        text
     }
 
     fn layout(&mut self, font: &FontRef, face: &Face) {
@@ -265,8 +265,12 @@ impl Browser {
             let positions = glyph_buffer.glyph_positions();
             let mut cursor_x = *start_x as f32;
             for (info, pos) in infos.iter().zip(positions.iter()) {
-                if *cursor_y > self.scroll + self.height || *cursor_y + 12 < self.scroll {
+                if *cursor_y + VSTEP < self.scroll {
                     continue;
+                }
+
+                if *cursor_y > self.scroll + self.height {
+                    break;
                 }
 
                 // RustyBuzz offsets / advances need to be manually scaled to px values
