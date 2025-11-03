@@ -163,13 +163,13 @@ struct Browser {
 }
 
 impl Browser {
-    fn new() -> Self {
+    fn new(width: u32, height: u32) -> Self {
         Self {
             scroll: 0,
             text: String::new(),
             display_list: Vec::new(),
-            width: 800,
-            height: 600,
+            width,
+            height,
         }
     }
 
@@ -329,7 +329,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let face = Face::from_slice(font_data, 0).unwrap();
 
     let url = URL::new(&args[1]);
-    let mut browser = Browser::new();
+    let mut browser = Browser::new(width, height);
     browser.load(url)?;
     browser.layout(&font, &face);
 
