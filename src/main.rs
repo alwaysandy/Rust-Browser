@@ -27,6 +27,8 @@ const VSTEP: u32 = (FONT_SIZE * 1.7) as u32;
 const HSTEP: u32 = (FONT_SIZE * 1.7) as u32;
 const FONT_SIZE: f32 = 16.0;
 
+// TODO modularize structs / enums
+
 #[derive(Debug)]
 struct URL {
     scheme: String,
@@ -321,6 +323,35 @@ impl Browser {
         self.reset_scroll();
     }
 }
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+enum Token {
+    Tag(String),
+    Text(Text)
+}
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+struct Text {
+    text: String,
+    font_family: String,
+    font_weight: String,
+    font_style: String,
+    font_size: u32
+}
+
+impl Text {
+    fn new(text: &str, font_family: &str, font_weight: &str, font_style: &str, font_size: u32) -> Self {
+        Self {
+            text: text.into(),
+            font_family: font_family.into(),
+            font_weight: font_weight.into(),
+            font_style: font_style.into(),
+            font_size
+        }
+    }
+}
+
+
 
 struct FontManager {
     source: SystemSource,
