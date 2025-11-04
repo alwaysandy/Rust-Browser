@@ -19,6 +19,10 @@ use winit_input_helper::WinitInputHelper;
 use ab_glyph::{Font, FontRef, ScaleFont, point};
 use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
+use font_kit::family_name::FamilyName;
+use font_kit::properties::{Properties, Style, Weight};
+use font_kit::source::SystemSource;
+
 const VSTEP: u32 = (FONT_SIZE * 1.7) as u32;
 const HSTEP: u32 = (FONT_SIZE * 1.7) as u32;
 const FONT_SIZE: f32 = 16.0;
@@ -208,7 +212,7 @@ impl Browser {
         let unscaled_height = font.height_unscaled();
         let scale_factor = scale.x / unscaled_height;
 
-        let space_width_in_px = scaled_font.h_advance(font.glyph_id(' '));
+        let space_width_in_px = scaled_font.h_advance(scaled_font.glyph_id(' '));
         let font_height = scaled_font.height();
         for word in self.text.split_whitespace() {
             let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
@@ -318,6 +322,67 @@ impl Browser {
     }
 }
 
+struct FontManager {
+    source: SystemSource,
+    loaded_fonts: HashMap<(String, String, String), Vec<u8>>,
+}
+
+impl FontManager {
+    fn new() -> Self {
+        Self {
+            source: SystemSource::new(),
+            loaded_fonts: HashMap::new(),
+        }
+    }
+
+    fn load_font(&mut self, family: &str, weight_s: &str, style_s: &str) {
+        let weight = match weight_s {
+            "bold" => Weight::BOLD,
+            _ => Weight::NORMAL,
+        };
+
+        let style = match style_s {
+            "italic" => Style::Italic,
+            "oblique" => Style::Oblique,
+            _ => Style::Normal,
+        };
+
+        let mut properties = Properties::new();
+        properties.style = style;
+        properties.weight = weight;
+        let handle = self
+            .source
+            .select_best_match(
+                &[FamilyName::Title(family.into()), FamilyName::Serif],
+                &properties,
+            )
+            .expect("Failed to find a font");
+        let font = handle.load().expect("Failed to load font");
+        let font_data = font.copy_font_data().expect("Failed to copy font data");
+        self.loaded_fonts.insert(
+            (family.into(), weight_s.into(), style_s.into()),
+            font_data.to_vec(),
+        );
+    }
+
+    fn get_fonts(&mut self, family: &str, style: &str, weight: &str) -> (FontRef<'_>, Face<'_>) {
+        if !self
+            .loaded_fonts
+            .contains_key(&(family.into(), style.into(), weight.into()))
+        {
+            self.load_font(&family, &style, &weight);
+        }
+
+        let font_data = self
+            .loaded_fonts
+            .get(&(family.into(), style.into(), weight.into()))
+            .unwrap();
+        let font = FontRef::try_from_slice(font_data).expect("Couldn't load a font");
+        let face = Face::from_slice(font_data, 0).expect("Could not load font face");
+        return (font, face);
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
@@ -328,10 +393,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let width = 800;
     let height = 600;
 
-    let font_data = include_bytes!("Arial-Unicode-MS.ttf");
-    let font = FontRef::try_from_slice(font_data)?;
-    let face = Face::from_slice(font_data, 0).unwrap();
-
+    let mut font_manager = FontManager::new();
+    let (font, face) = font_manager.get_fonts("Arial Unicode MS", "normal", "normal");
     let url = URL::new(&args[1]);
     let mut browser = Browser::new(width, height);
     browser.load(url)?;
