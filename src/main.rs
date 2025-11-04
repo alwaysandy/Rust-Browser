@@ -347,6 +347,7 @@ impl FontManager {
             _ => Style::Normal,
         };
 
+        // TODO: Fix input so that weight and style can't be entered out of order
         let mut properties = Properties::new();
         properties.style = style;
         properties.weight = weight;
@@ -365,21 +366,22 @@ impl FontManager {
         );
     }
 
-    fn get_fonts(&mut self, family: &str, style: &str, weight: &str) -> (FontRef<'_>, Face<'_>) {
+    fn get_fonts(&mut self, family: &str, weight: &str, style: &str) -> (FontRef<'_>, Face<'_>) {
+        // TODO: Fix input so that weight and style can't be entered out of order
         if !self
             .loaded_fonts
-            .contains_key(&(family.into(), style.into(), weight.into()))
+            .contains_key(&(family.into(), weight.into(), style.into()))
         {
-            self.load_font(&family, &style, &weight);
+            self.load_font(&family, &weight, &style);
         }
 
         let font_data = self
             .loaded_fonts
-            .get(&(family.into(), style.into(), weight.into()))
+            .get(&(family.into(), weight.into(), style.into()))
             .unwrap();
         let font = FontRef::try_from_slice(font_data).expect("Couldn't load a font");
         let face = Face::from_slice(font_data, 0).expect("Could not load font face");
-        return (font, face);
+        (font, face)
     }
 }
 
