@@ -16,7 +16,7 @@ use winit::keyboard::KeyCode;
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-use ab_glyph::{Font, FontRef, ScaleFont, point};
+use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
 use font_kit::family_name::FamilyName;
@@ -25,7 +25,7 @@ use font_kit::source::SystemSource;
 
 const VSTEP: u32 = (FONT_SIZE * 1.7) as u32;
 const HSTEP: u32 = (FONT_SIZE * 1.7) as u32;
-const FONT_SIZE: f32 = 16.0;
+const FONT_SIZE: f32 = 20.0;
 
 // TODO modularize structs / enums
 
@@ -164,6 +164,7 @@ struct Browser {
     scroll: u32,
     tokens: Vec<Token>,
     display_list: Vec<(GlyphBuffer, u32, u32)>,
+    font_manager: FontManager,
     width: u32,
     height: u32,
 }
@@ -174,6 +175,7 @@ impl Browser {
             scroll: 0,
             tokens: Vec::new(),
             display_list: Vec::new(),
+            font_manager: FontManager::new(),
             width,
             height,
         }
@@ -182,6 +184,8 @@ impl Browser {
     fn load(&mut self, url: URL) -> Result<(), std::io::Error> {
         let body = url.request()?;
         self.tokens = self.lex(body);
+        let mut layout = Layout::new(self.width);
+        self.display_list = layout.token(&self.tokens, &mut self.font_manager);
         Ok(())
     }
 
@@ -193,7 +197,7 @@ impl Browser {
             if c == '<' {
                 in_tag = true;
                 if !buffer.is_empty() {
-                    out.push(Token::Text(Text::new(&buffer)));
+                    out.push(Token::Text(buffer.clone()));
                     buffer.clear();
                 }
             } else if c == '>' {
@@ -206,56 +210,10 @@ impl Browser {
         }
 
         if !in_tag && !buffer.is_empty() {
-            out.push(Token::Text(Text::new(&buffer)));
+            out.push(Token::Text(buffer.clone()));
         }
 
         out
-    }
-
-    fn layout(&mut self, font: &FontRef, face: &Face) {
-        self.display_list.clear();
-        let mut word_start_x = HSTEP;
-        let mut word_start_y = VSTEP;
-
-        // Font size should be set in pt, not px
-        let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
-        let scaled_font = font.as_scaled(scale);
-
-        // RustyBuzz offsets / advances need to be manually scaled to px values
-        let unscaled_height = font.height_unscaled();
-        let scale_factor = scale.x / unscaled_height;
-
-        let space_width_in_px = scaled_font.h_advance(scaled_font.glyph_id(' '));
-        let font_height = scaled_font.height();
-        for tok in &self.tokens {
-            match tok {
-                Token::Text(text_data) => {
-                    let text = &text_data.text;
-                    for word in text.split_whitespace() {
-                        let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
-                        buffer.push_str(word);
-                        let glyph_buffer = shape(&face, &[], buffer);
-
-                        let word_width_in_px: u32 =
-                            (glyph_buffer
-                                .glyph_positions()
-                                .iter()
-                                .map(|p| p.x_advance)
-                                .sum::<i32>() as f32
-                                * scale_factor) as u32;
-
-                        if word_start_x + word_width_in_px >= self.width - HSTEP {
-                            word_start_x = HSTEP;
-                            word_start_y += (font_height * 1.2) as u32;
-                        }
-                        self.display_list
-                            .push((glyph_buffer, word_start_x, word_start_y));
-                        word_start_x += word_width_in_px + space_width_in_px as u32;
-                    }
-                }
-                _ => continue,
-            }
-        }
     }
 
     fn reset_scroll(&mut self) {
@@ -336,38 +294,12 @@ impl Browser {
         }
     }
 
-    fn resize_browser(&mut self, width: u32, height: u32, font: &FontRef, face: &Face) {
+    fn resize_browser(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        self.layout(font, face);
+        let mut layout = Layout::new(width);
+        self.display_list = layout.token(&self.tokens, &mut self.font_manager);
         self.reset_scroll();
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Hash)]
-enum Token {
-    Tag(String),
-    Text(Text),
-}
-
-#[derive(Debug, Eq, PartialEq, Hash)]
-struct Text {
-    text: String,
-    font_family: String,
-    font_weight: String,
-    font_style: String,
-    font_size: u32,
-}
-
-impl Text {
-    fn new(text: &str) -> Self {
-        Self {
-            text: text.into(),
-            font_family: "".into(),
-            font_weight: "normal".into(),
-            font_style: "normal".into(),
-            font_size: 16,
-        }
     }
 }
 
@@ -434,6 +366,90 @@ impl FontManager {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Hash)]
+enum Token {
+    Tag(String),
+    Text(String),
+}
+
+struct Layout {
+    cursor_x: u32,
+    cursor_y: u32,
+    window_width: u32,
+    font_weight: String,
+    font_style: String,
+}
+
+impl Layout {
+    fn new(window_width: u32) -> Self {
+        Self {
+            cursor_x: HSTEP,
+            cursor_y: VSTEP,
+            window_width,
+            font_weight: "normal".into(),
+            font_style: "normal".into(),
+        }
+    }
+
+    fn token(
+        &mut self,
+        tokens: &Vec<Token>,
+        font_manager: &mut FontManager,
+    ) -> Vec<(GlyphBuffer, u32, u32)> {
+        let mut display_list = Vec::<(GlyphBuffer, u32, u32)>::new();
+        for token in tokens {
+            match token {
+                Token::Text(text) => {
+                    for word in text.split_whitespace() {
+                        self.word(word, &mut display_list, font_manager)
+                    }
+                }
+                Token::Tag(tag) => continue,
+            }
+        }
+
+        display_list
+    }
+
+    fn word(
+        &mut self,
+        word: &str,
+        display_list: &mut Vec<(GlyphBuffer, u32, u32)>,
+        font_manager: &mut FontManager,
+    ) {
+        let (font, face) =
+            font_manager.get_fonts("Arial Unicode Ms", &self.font_weight, &self.font_style);
+        // Font size should be set in pt, not px
+        let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
+        let scaled_font = font.as_scaled(scale);
+
+        // RustyBuzz offsets / advances need to be manually scaled to px values
+        let unscaled_height = font.height_unscaled();
+        let scale_factor = scale.x / unscaled_height;
+
+        let space_width_in_px = scaled_font.h_advance(scaled_font.glyph_id(' '));
+        let font_height = scaled_font.height();
+        let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
+        buffer.push_str(word);
+        let glyph_buffer = shape(&face, &[], buffer);
+
+        let word_width_in_px: u32 = (glyph_buffer
+            .glyph_positions()
+            .iter()
+            .map(|p| p.x_advance)
+            .sum::<i32>() as f32
+            * scale_factor) as u32;
+
+        if self.cursor_x + word_width_in_px >= self.window_width - HSTEP {
+            self.cursor_x = HSTEP;
+            self.cursor_y += (font_height * 1.2) as u32;
+        }
+
+        display_list.push((glyph_buffer, self.cursor_x, self.cursor_y));
+        self.cursor_x += word_width_in_px + space_width_in_px as u32;
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
@@ -449,7 +465,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let url = URL::new(&args[1]);
     let mut browser = Browser::new(width, height);
     browser.load(url)?;
-    browser.layout(&font, &face);
 
     let event_loop = EventLoop::new().unwrap();
     let mut input = WinitInputHelper::new();
@@ -511,7 +526,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     return;
                 }
 
-                browser.resize_browser(size.width, size.height, &font, &face);
+                browser.resize_browser(size.width, size.height);
             }
 
             window.request_redraw();
