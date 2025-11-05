@@ -162,7 +162,7 @@ impl URL {
 
 struct Browser {
     scroll: u32,
-    text: String,
+    tokens: Vec<Token>,
     display_list: Vec<(GlyphBuffer, u32, u32)>,
     width: u32,
     height: u32,
@@ -172,7 +172,7 @@ impl Browser {
     fn new(width: u32, height: u32) -> Self {
         Self {
             scroll: 0,
-            text: String::new(),
+            tokens: Vec::new(),
             display_list: Vec::new(),
             width,
             height,
@@ -181,24 +181,35 @@ impl Browser {
 
     fn load(&mut self, url: URL) -> Result<(), std::io::Error> {
         let body = url.request()?;
-        self.text = self.lex(body);
+        self.tokens = self.lex(body);
         Ok(())
     }
 
-    fn lex(&self, body: String) -> String {
-        let mut text = "".to_string();
+    fn lex(&self, body: String) -> Vec<Token> {
+        let mut out: Vec<Token> = Vec::new();
+        let mut buffer = String::new();
         let mut in_tag = false;
         for c in body.chars() {
             if c == '<' {
                 in_tag = true;
+                if !buffer.is_empty() {
+                    out.push(Token::Text(Text::new(&buffer)));
+                    buffer.clear();
+                }
             } else if c == '>' {
                 in_tag = false;
+                out.push(Token::Tag(buffer.clone()));
+                buffer.clear();
             } else if !in_tag {
-                text.push(c);
+                buffer.push(c);
             }
         }
 
-        text
+        if !in_tag && !buffer.is_empty() {
+            out.push(Token::Text(Text::new(&buffer)));
+        }
+
+        out
     }
 
     fn layout(&mut self, font: &FontRef, face: &Face) {
@@ -216,25 +227,34 @@ impl Browser {
 
         let space_width_in_px = scaled_font.h_advance(scaled_font.glyph_id(' '));
         let font_height = scaled_font.height();
-        for word in self.text.split_whitespace() {
-            let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
-            buffer.push_str(word);
-            let glyph_buffer = shape(&face, &[], buffer);
+        for tok in &self.tokens {
+            match tok {
+                Token::Text(text_data) => {
+                    let text = &text_data.text;
+                    for word in text.split_whitespace() {
+                        let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
+                        buffer.push_str(word);
+                        let glyph_buffer = shape(&face, &[], buffer);
 
-            let word_width_in_px: u32 = (glyph_buffer
-                .glyph_positions()
-                .iter()
-                .map(|p| p.x_advance)
-                .sum::<i32>() as f32
-                * scale_factor) as u32;
+                        let word_width_in_px: u32 =
+                            (glyph_buffer
+                                .glyph_positions()
+                                .iter()
+                                .map(|p| p.x_advance)
+                                .sum::<i32>() as f32
+                                * scale_factor) as u32;
 
-            if word_start_x + word_width_in_px >= self.width - HSTEP {
-                word_start_x = HSTEP;
-                word_start_y += (font_height * 1.2) as u32;
+                        if word_start_x + word_width_in_px >= self.width - HSTEP {
+                            word_start_x = HSTEP;
+                            word_start_y += (font_height * 1.2) as u32;
+                        }
+                        self.display_list
+                            .push((glyph_buffer, word_start_x, word_start_y));
+                        word_start_x += word_width_in_px + space_width_in_px as u32;
+                    }
+                }
+                _ => continue,
             }
-            self.display_list
-                .push((glyph_buffer, word_start_x, word_start_y));
-            word_start_x += word_width_in_px + space_width_in_px as u32;
         }
     }
 
@@ -327,7 +347,7 @@ impl Browser {
 #[derive(Debug, Eq, PartialEq, Hash)]
 enum Token {
     Tag(String),
-    Text(Text)
+    Text(Text),
 }
 
 #[derive(Debug, Eq, PartialEq, Hash)]
@@ -336,22 +356,20 @@ struct Text {
     font_family: String,
     font_weight: String,
     font_style: String,
-    font_size: u32
+    font_size: u32,
 }
 
 impl Text {
-    fn new(text: &str, font_family: &str, font_weight: &str, font_style: &str, font_size: u32) -> Self {
+    fn new(text: &str) -> Self {
         Self {
             text: text.into(),
-            font_family: font_family.into(),
-            font_weight: font_weight.into(),
-            font_style: font_style.into(),
-            font_size
+            font_family: "".into(),
+            font_weight: "normal".into(),
+            font_style: "normal".into(),
+            font_size: 16,
         }
     }
 }
-
-
 
 struct FontManager {
     source: SystemSource,
