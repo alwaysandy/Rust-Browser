@@ -440,11 +440,13 @@ impl Layout {
         font_manager: &mut FontManager,
     ) -> Vec<(GlyphBuffer, u32, u32, &'static FontRef<'static>, FontSize)> {
         let mut display_list = Vec::<(GlyphBuffer, u32, u32, &FontRef, FontSize)>::new();
+        // TODO reload font, face on font change in tag match block
+        let (font, face) = font_manager.get_fonts(&self.font_properties);
         for token in tokens {
             match token {
                 Token::Text(text) => {
                     for word in text.split_whitespace() {
-                        self.word(word, &mut display_list, font_manager)
+                        self.word(word, &mut display_list, font, face);
                     }
                 }
                 Token::Tag(tag) => continue,
@@ -458,9 +460,9 @@ impl Layout {
         &mut self,
         word: &str,
         display_list: &mut Vec<(GlyphBuffer, u32, u32, &FontRef, FontSize)>,
-        font_manager: &mut FontManager,
+        font: &'static FontRef<'static>,
+        face: &'static Face<'static>
     ) {
-        let (font, face) = font_manager.get_fonts(&self.font_properties);
         // Font size should be set in pt, not px
         let scale = font.pt_to_px_scale(self.font_size.0 as f32).unwrap();
         let scaled_font = font.as_scaled(scale);
