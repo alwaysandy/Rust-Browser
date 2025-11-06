@@ -16,16 +16,16 @@ use winit::keyboard::KeyCode;
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontRef, ScaleFont, point};
 use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 
 use font_kit::family_name::FamilyName;
 use font_kit::properties::{Properties, Style, Weight};
 use font_kit::source::SystemSource;
 
-const VSTEP: u32 = (FONT_SIZE * 1.7) as u32;
-const HSTEP: u32 = (FONT_SIZE * 1.7) as u32;
-const FONT_SIZE: f32 = 20.0;
+// TODO FIX VSTEP AND HSTEP
+const VSTEP: u32 = 40;
+const HSTEP: u32 = 40;
 
 // TODO modularize structs / enums
 
@@ -163,7 +163,7 @@ impl URL {
 struct Browser {
     scroll: u32,
     tokens: Vec<Token>,
-    display_list: Vec<(GlyphBuffer, u32, u32)>,
+    display_list: Vec<(GlyphBuffer, u32, u32, &'static FontRef<'static>, FontSize)>,
     font_manager: FontManager,
     width: u32,
     height: u32,
@@ -240,11 +240,11 @@ impl Browser {
         self.scroll = std::cmp::max(0, self.scroll as i32 - 20) as u32;
     }
 
-    fn draw(&self, frame: &mut [u8], font: &FontRef) {
+    fn draw(&self, frame: &mut [u8]) {
         // Font size should be set in pt, not px
-        let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
-        let scaled_font = font.as_scaled(scale);
-        for (glyph_buffer, start_x, cursor_y) in &self.display_list {
+        for (glyph_buffer, start_x, cursor_y, font, font_size) in &self.display_list {
+            let scale = font.pt_to_px_scale(font_size.0 as f32).unwrap();
+            let scaled_font = font.as_scaled(scale);
             let infos = glyph_buffer.glyph_infos();
             let positions = glyph_buffer.glyph_positions();
             let mut cursor_x = *start_x as f32;
@@ -303,66 +303,109 @@ impl Browser {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+enum FontWeight {
+    Normal,
+    Bold,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+enum FontStyle {
+    Normal,
+    Italic,
+    Oblique,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct FontProperties {
+    font_family: String,
+    font_weight: FontWeight,
+    font_style: FontStyle,
+}
+
+impl FontProperties {
+    fn new() -> Self {
+        Self {
+            font_family: "Arial Unicode MS".into(),
+            font_weight: FontWeight::Normal,
+            font_style: FontStyle::Normal,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+struct FontSize(u32);
+
+struct CachedFont {
+    ab_font: &'static FontRef<'static>,
+    rb_face: &'static Face<'static>,
+}
+
 struct FontManager {
     source: SystemSource,
-    loaded_fonts: HashMap<(String, String, String), Vec<u8>>,
+    cached_fonts: HashMap<FontProperties, CachedFont>,
 }
 
 impl FontManager {
     fn new() -> Self {
         Self {
             source: SystemSource::new(),
-            loaded_fonts: HashMap::new(),
+            cached_fonts: HashMap::new(),
         }
     }
 
-    fn load_font(&mut self, family: &str, weight_s: &str, style_s: &str) {
-        let weight = match weight_s {
-            "bold" => Weight::BOLD,
+    fn get_fonts(
+        &mut self,
+        font_properties: &FontProperties,
+    ) -> (&'static FontRef<'static>, &'static Face<'static>) {
+        if let Some(cached) = self.cached_fonts.get(font_properties) {
+            return (cached.ab_font, cached.rb_face);
+        }
+
+        let weight = match font_properties.font_weight {
+            FontWeight::Bold => Weight::BOLD,
             _ => Weight::NORMAL,
         };
 
-        let style = match style_s {
-            "italic" => Style::Italic,
-            "oblique" => Style::Oblique,
+        let style = match font_properties.font_style {
+            FontStyle::Italic => Style::Italic,
+            FontStyle::Oblique => Style::Oblique,
             _ => Style::Normal,
         };
 
-        // TODO: Fix input so that weight and style can't be entered out of order
         let mut properties = Properties::new();
         properties.style = style;
         properties.weight = weight;
         let handle = self
             .source
             .select_best_match(
-                &[FamilyName::Title(family.into()), FamilyName::Serif],
+                &[
+                    FamilyName::Title(font_properties.font_family.clone()),
+                    FamilyName::Serif,
+                ],
                 &properties,
             )
             .expect("Failed to find a font");
         let font = handle.load().expect("Failed to load font");
-        let font_data = font.copy_font_data().expect("Failed to copy font data");
-        self.loaded_fonts.insert(
-            (family.into(), weight_s.into(), style_s.into()),
-            font_data.to_vec(),
-        );
-    }
+        let font_data = font
+            .copy_font_data()
+            .expect("Failed to copy font data")
+            .to_vec();
 
-    fn get_fonts(&mut self, family: &str, weight: &str, style: &str) -> (FontRef<'_>, Face<'_>) {
-        // TODO: Fix input so that weight and style can't be entered out of order
-        if !self
-            .loaded_fonts
-            .contains_key(&(family.into(), weight.into(), style.into()))
-        {
-            self.load_font(&family, &weight, &style);
-        }
+        // Use Box::leak() to give references a static lifetime, saving a lot of
+        // time and headache
+        let static_font_data: &'static [u8] = Box::leak(font_data.into_boxed_slice());
 
-        let font_data = self
-            .loaded_fonts
-            .get(&(family.into(), weight.into(), style.into()))
-            .unwrap();
-        let font = FontRef::try_from_slice(font_data).expect("Couldn't load a font");
-        let face = Face::from_slice(font_data, 0).expect("Could not load font face");
-        (font, face)
+        let ab_font = Box::leak(Box::new(
+            FontRef::try_from_slice(static_font_data).expect("Couldn't load a font"),
+        ));
+        let rb_face = Box::leak(Box::new(
+            Face::from_slice(static_font_data, 0).expect("Could not load font face"),
+        ));
+        self.cached_fonts
+            .insert(font_properties.clone(), CachedFont { ab_font, rb_face });
+
+        (ab_font, rb_face)
     }
 }
 
@@ -376,8 +419,8 @@ struct Layout {
     cursor_x: u32,
     cursor_y: u32,
     window_width: u32,
-    font_weight: String,
-    font_style: String,
+    font_properties: FontProperties,
+    font_size: FontSize,
 }
 
 impl Layout {
@@ -386,8 +429,8 @@ impl Layout {
             cursor_x: HSTEP,
             cursor_y: VSTEP,
             window_width,
-            font_weight: "normal".into(),
-            font_style: "normal".into(),
+            font_properties: FontProperties::new(),
+            font_size: FontSize(16),
         }
     }
 
@@ -395,8 +438,8 @@ impl Layout {
         &mut self,
         tokens: &Vec<Token>,
         font_manager: &mut FontManager,
-    ) -> Vec<(GlyphBuffer, u32, u32)> {
-        let mut display_list = Vec::<(GlyphBuffer, u32, u32)>::new();
+    ) -> Vec<(GlyphBuffer, u32, u32, &'static FontRef<'static>, FontSize)> {
+        let mut display_list = Vec::<(GlyphBuffer, u32, u32, &FontRef, FontSize)>::new();
         for token in tokens {
             match token {
                 Token::Text(text) => {
@@ -414,13 +457,12 @@ impl Layout {
     fn word(
         &mut self,
         word: &str,
-        display_list: &mut Vec<(GlyphBuffer, u32, u32)>,
+        display_list: &mut Vec<(GlyphBuffer, u32, u32, &FontRef, FontSize)>,
         font_manager: &mut FontManager,
     ) {
-        let (font, face) =
-            font_manager.get_fonts("Arial Unicode Ms", &self.font_weight, &self.font_style);
+        let (font, face) = font_manager.get_fonts(&self.font_properties);
         // Font size should be set in pt, not px
-        let scale = font.pt_to_px_scale(FONT_SIZE).unwrap();
+        let scale = font.pt_to_px_scale(self.font_size.0 as f32).unwrap();
         let scaled_font = font.as_scaled(scale);
 
         // RustyBuzz offsets / advances need to be manually scaled to px values
@@ -431,7 +473,7 @@ impl Layout {
         let font_height = scaled_font.height();
         let mut buffer: UnicodeBuffer = UnicodeBuffer::new();
         buffer.push_str(word);
-        let glyph_buffer = shape(&face, &[], buffer);
+        let glyph_buffer = shape(face, &[], buffer);
 
         let word_width_in_px: u32 = (glyph_buffer
             .glyph_positions()
@@ -445,7 +487,13 @@ impl Layout {
             self.cursor_y += (font_height * 1.2) as u32;
         }
 
-        display_list.push((glyph_buffer, self.cursor_x, self.cursor_y));
+        display_list.push((
+            glyph_buffer,
+            self.cursor_x,
+            self.cursor_y,
+            font,
+            self.font_size,
+        ));
         self.cursor_x += word_width_in_px + space_width_in_px as u32;
     }
 }
@@ -460,8 +508,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let width = 800;
     let height = 600;
 
-    let mut font_manager = FontManager::new();
-    let (font, face) = font_manager.get_fonts("Arial Unicode MS", "normal", "normal");
     let url = URL::new(&args[1]);
     let mut browser = Browser::new(width, height);
     browser.load(url)?;
@@ -493,7 +539,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         {
             let frame = pixels.frame_mut();
             frame.fill(255);
-            browser.draw(frame, &font);
+            browser.draw(frame);
             if let Err(err) = pixels.render() {
                 elwt.exit();
                 return;
