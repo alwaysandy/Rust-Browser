@@ -22,12 +22,11 @@ use rustybuzz::{Face, GlyphBuffer, UnicodeBuffer, shape};
 use font_kit::family_name::FamilyName;
 use font_kit::properties::{Properties, Style, Weight};
 use font_kit::source::SystemSource;
-
-// TODO FIX VSTEP AND HSTEP
+// TODO: FIX VSTEP AND HSTEP
 const VSTEP: u32 = 40;
 const HSTEP: u32 = 40;
 
-// TODO modularize structs / enums
+// TODO: modularize structs / enums
 
 #[derive(Debug)]
 struct URL {
@@ -440,7 +439,7 @@ impl Layout {
         font_manager: &mut FontManager,
     ) -> Vec<(GlyphBuffer, u32, u32, &'static FontRef<'static>, FontSize)> {
         let mut display_list = Vec::<(GlyphBuffer, u32, u32, &FontRef, FontSize)>::new();
-        // TODO reload font, face on font change in tag match block
+        // TODO: reload font, face on font change in tag match block
         let (font, face) = font_manager.get_fonts(&self.font_properties);
         for token in tokens {
             match token {
@@ -461,7 +460,7 @@ impl Layout {
         word: &str,
         display_list: &mut Vec<(GlyphBuffer, u32, u32, &FontRef, FontSize)>,
         font: &'static FontRef<'static>,
-        face: &'static Face<'static>
+        face: &'static Face<'static>,
     ) {
         // Font size should be set in pt, not px
         let scale = font.pt_to_px_scale(self.font_size.0 as f32).unwrap();
