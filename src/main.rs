@@ -323,8 +323,8 @@ struct FontProperties {
     font_style: FontStyle,
 }
 
-impl FontProperties {
-    fn new() -> Self {
+impl Default for FontProperties {
+    fn default() -> Self {
         Self {
             font_family: "Arial Unicode MS".into(),
             font_weight: FontWeight::Normal,
@@ -429,7 +429,7 @@ impl Layout {
             cursor_x: HSTEP,
             cursor_y: VSTEP,
             window_width,
-            font_properties: FontProperties::new(),
+            font_properties: FontProperties::default(),
             font_size: FontSize(16),
         }
     }
