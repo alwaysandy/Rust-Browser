@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
@@ -42,14 +43,15 @@ impl URL {
             .split_once("://")
             .map(|(scheme, url)| (scheme.to_owned(), url.to_owned()))
         else {
-            panic!("Invalid URL (must start with 'http://' or 'https://'");
+            panic!("Invalid URL: Must include URL scheme (http://, https://, file://)");
         };
 
         assert!(
-            scheme == "http" || scheme == "https",
-            "Invalid URL (must start with 'http://' or 'https://'"
+            scheme == "http" || scheme == "https" || scheme == "file",
+            "Invalid URL scheme"
         );
 
+        // TODO: Parse port into Option<u32>
         let mut port = if scheme == "http" {
             "80".to_owned()
         } else {
@@ -157,6 +159,11 @@ impl URL {
         reader.read_to_string(&mut body)?;
         Ok(body)
     }
+
+    fn load_file(self) -> Result<String, std::io::Error> {
+        let contents = fs::read_to_string(self.path)?;
+        Ok(contents)
+    }
 }
 
 struct Browser {
@@ -181,7 +188,12 @@ impl Browser {
     }
 
     fn load(&mut self, url: URL) -> Result<(), std::io::Error> {
-        let body = url.request()?;
+        let body = match url.scheme.as_ref() {
+            "http" | "https" => url.request()?,
+            "file" => url.load_file()?,
+            _ => unreachable!()
+        };
+
         self.tokens = self.lex(body);
         let mut layout = Layout::new(self.width);
         self.display_list = layout.token(&self.tokens, &mut self.font_manager);
