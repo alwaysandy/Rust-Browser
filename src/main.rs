@@ -215,7 +215,7 @@ impl Browser {
                 in_tag = false;
                 out.push(Token::Tag(buffer.clone()));
                 buffer.clear();
-            } else if !in_tag {
+            } else {
                 buffer.push(c);
             }
         }
@@ -452,15 +452,23 @@ impl Layout {
     ) -> Vec<(GlyphBuffer, u32, u32, &'static FontRef<'static>, FontSize)> {
         let mut display_list = Vec::<(GlyphBuffer, u32, u32, &FontRef, FontSize)>::new();
         // TODO: reload font, face on font change in tag match block
-        let (font, face) = font_manager.get_fonts(&self.font_properties);
         for token in tokens {
+            let (font, face) = font_manager.get_fonts(&self.font_properties);
             match token {
                 Token::Text(text) => {
                     for word in text.split_whitespace() {
                         self.word(word, &mut display_list, font, face);
                     }
                 }
-                Token::Tag(tag) => continue,
+                Token::Tag(tag) => {
+                    match tag.as_ref() {
+                        "i" => self.font_properties.font_style = FontStyle::Italic,
+                        "/i" => self.font_properties.font_style = FontStyle::Normal,
+                        "b" => self.font_properties.font_weight = FontWeight::Bold,
+                        "/b" => self.font_properties.font_weight = FontWeight::Normal,
+                        _ => continue,
+                    }
+                }
             }
         }
 
