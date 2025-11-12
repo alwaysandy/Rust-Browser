@@ -576,10 +576,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             if input.key_held(KeyCode::ArrowDown) {
                 browser.scrolldown();
+                window.request_redraw();
             }
 
             if input.key_held(KeyCode::ArrowUp) {
                 browser.scrollup();
+                window.request_redraw();
             }
 
             if let Some(size) = input.window_resized() {
@@ -594,9 +596,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 browser.resize_browser(size.width, size.height);
+                window.request_redraw();
             }
-
-            window.request_redraw();
         }
     })?;
 
